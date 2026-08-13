@@ -164,9 +164,10 @@ fun StatsScreen(state: UiState) {
                 )
                 if (all.size > clean.size) {
                     Spacer(Modifier.height(10.dp))
+                    val heldOut = all.size - clean.size
                     StatusBadge(
                         Status.NEUTRAL,
-                        "${all.size - clean.size} readings held out of the trend",
+                        "$heldOut ${if (heldOut == 1) "reading" else "readings"} held out of the trend",
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
