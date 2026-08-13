@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Stylised V-taper torso: the app's core goal made into a mark. -->
+    <path
+        android:fillColor="#0E8F68"
+        android:pathData="M34,34 L54,29 L74,34 L68,58 L54,80 L40,58 Z" />
+    <path
+        android:fillColor="#F4F5F2"
+        android:pathData="M54,38 L64,41 L60,57 L54,68 L48,57 L44,41 Z" />
+</vector>
