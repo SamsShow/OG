@@ -1,5 +1,7 @@
 # OG
 
+[![Build APK](https://github.com/SamsShow/OG/actions/workflows/build.yml/badge.svg)](https://github.com/SamsShow/OG/actions/workflows/build.yml)
+
 An offline Android gym and physique tracker built around one goal: a wider back, a fuller
 upper chest, a V-taper, and less belly fat. Kotlin, Jetpack Compose, Room. No accounts, no
 network, no third-party UI libraries.
