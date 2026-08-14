@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.PieChartOutline
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -76,6 +77,7 @@ import com.og.ui.screens.CalendarScreen
 import com.og.ui.screens.DashboardScreen
 import com.og.ui.screens.FuelScreen
 import com.og.ui.screens.OnboardingScreen
+import com.og.ui.screens.SettingsScreen
 import com.og.ui.screens.StatsScreen
 import com.og.ui.screens.TrainScreen
 import com.og.ui.theme.Motion
@@ -90,6 +92,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     FUEL("Fuel", Icons.Filled.PieChartOutline),
     BODY("Body", Icons.Outlined.AccessibilityNew),
     STATS("Stats", Icons.Filled.Insights),
+    SETTINGS("You", Icons.Outlined.Settings),
 }
 
 /** Backdrop blur is a RenderEffect, which only exists from Android 12. */
@@ -102,6 +105,14 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        Reminders.createChannel(this)
+        Reminders.schedule(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 42)
+        }
         setContent { OgTheme { OgRoot() } }
     }
 }
@@ -166,6 +177,7 @@ private fun OgRoot() {
                         Tab.FUEL -> FuelScreen(state, vm)
                         Tab.BODY -> BodyScreen(state, vm)
                         Tab.STATS -> StatsScreen(state)
+                        Tab.SETTINGS -> SettingsScreen(state, vm)
                     }
                 }
             }

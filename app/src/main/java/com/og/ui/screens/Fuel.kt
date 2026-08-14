@@ -84,10 +84,11 @@ private val Meal.icon: ImageVector
 
 @Composable
 fun FuelScreen(state: UiState, vm: OgViewModel) {
+    val day = state.selectedDay
     val target = state.proteinTarget
     val max = state.profile?.proteinMax ?: 140
     val shownProtein by animateIntAsState(
-        state.proteinToday.roundToInt(), Motion.counter(), label = "proteinBig",
+        state.proteinSelected.roundToInt(), Motion.counter(), label = "proteinBig",
     )
 
     LazyColumn(
@@ -109,7 +110,7 @@ fun FuelScreen(state: UiState, vm: OgViewModel) {
             OgCard(padding = 20.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RingMeter(
-                        progress = (state.proteinToday / target).toFloat(),
+                        progress = (state.proteinSelected / target).toFloat(),
                         modifier = Modifier.size(126.dp),
                         stroke = 15.dp,
                     ) {
@@ -132,13 +133,13 @@ fun FuelScreen(state: UiState, vm: OgViewModel) {
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "${state.kcalToday.roundToInt()} kcal today",
+                            "${state.kcalSelected.roundToInt()} kcal today",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Og.InkMuted,
                         )
                         Spacer(Modifier.height(10.dp))
                         val done = state.meals.count {
-                            it.day == state.today && it.completed &&
+                            it.day == state.selectedDay && it.completed &&
                                 MealPlan[it.mealId]?.kind != MealKind.ADAPTIVE
                         }
                         Text(
@@ -162,7 +163,7 @@ fun FuelScreen(state: UiState, vm: OgViewModel) {
         item {
             val suggested = state.suggestTopUp
             val logged = state.meals.firstOrNull {
-                it.day == state.today && it.mealId == MealPlan.wheyTopUp.id
+                it.day == state.selectedDay && it.mealId == MealPlan.wheyTopUp.id
             }
             if (suggested || logged?.completed == true) {
                 MealCard(MealPlan.wheyTopUp, state, vm, highlight = suggested)
@@ -190,7 +191,7 @@ private fun MealCard(
     vm: OgViewModel,
     highlight: Boolean = false,
 ) {
-    val log = state.meals.firstOrNull { it.day == state.today && it.mealId == meal.id }
+    val log = state.meals.firstOrNull { it.day == state.selectedDay && it.mealId == meal.id }
     val completed = log?.completed == true
     val servings = log?.servings ?: 1.0
     var showSwaps by remember { mutableStateOf(false) }
@@ -308,7 +309,7 @@ private fun MealCard(
  */
 @Composable
 private fun ExtrasCard(state: UiState, vm: OgViewModel) {
-    val todays = state.extras.filter { it.day == state.today }
+    val todays = state.extras.filter { it.day == state.selectedDay }
     var open by remember { mutableStateOf(false) }
     var label by remember { mutableStateOf("") }
     var protein by remember { mutableStateOf("") }

@@ -45,7 +45,7 @@ data class Exercise(
 
 object ExerciseLibrary {
 
-    val all: List<Exercise> = listOf(
+    private val builtIn: List<Exercise> = listOf(
         // ---------- BACK : the priority group for width and the V taper ----------
         Exercise(
             "lat_pulldown", "Lat Pulldown (Wide Grip)", MuscleGroup.BACK,
@@ -450,12 +450,29 @@ object ExerciseLibrary {
         ),
     )
 
-    private val byId = all.associateBy { it.id }
+    private val builtInById = builtIn.associateBy { it.id }
 
-    operator fun get(id: String): Exercise? = byId[id]
+    /**
+     * User-added lifts, mirrored here from the database on load.
+     *
+     * Deliberately a mutable registry rather than a constructor argument: [Analytics] and
+     * several composables look exercises up statically, and a set logged against a custom
+     * lift has to resolve its muscles everywhere or it would silently count for nothing.
+     */
+    @Volatile private var custom: Map<String, Exercise> = emptyMap()
+
+    fun setCustom(list: List<Exercise>) {
+        custom = list.associateBy { it.id }
+    }
+
+    val all: List<Exercise> get() = builtIn + custom.values.sortedBy { it.name }
+
+    operator fun get(id: String): Exercise? = builtInById[id] ?: custom[id]
 
     fun byGroup(group: MuscleGroup): List<Exercise> = all.filter { it.group == group }
 
     fun forMuscle(muscle: Muscle): List<Exercise> =
         all.filter { muscle in it.primary } + all.filter { muscle in it.secondary }
+
+    fun isCustom(id: String): Boolean = id in custom
 }

@@ -31,6 +31,13 @@ data class Profile(
     val proteinMin: Int = 100,
     val proteinMax: Int = 140,
     val onboarded: Boolean = false,
+    /**
+     * Neon connection string, entered in-app and never compiled in. Empty disables sync.
+     * Kept out of the build so no credential can end up in the repository or the APK.
+     */
+    val neonUrl: String = "",
+    /** Set once the 11pm reminder has been scheduled, so it is not rescheduled every launch. */
+    val reminderOn: Boolean = true,
 )
 
 @Entity(tableName = "set_log")
@@ -51,6 +58,28 @@ data class MealLog(
     val servings: Double,
     val completed: Boolean,
 )
+
+/** A lift the user added because the built-in library was missing it. */
+@Entity(tableName = "custom_exercise")
+data class CustomExercise(
+    @PrimaryKey val id: String,
+    val name: String,
+    /** [MuscleGroup] name. */
+    val muscleGroup: String,
+    /** Comma-separated [Muscle] names. */
+    val primaryMuscles: String,
+    /** [Equipment] name. */
+    val equipment: String,
+) {
+    fun toExercise(): Exercise = Exercise(
+        id = id,
+        name = name,
+        group = MuscleGroup.entries.firstOrNull { it.name == muscleGroup } ?: MuscleGroup.BACK,
+        primary = primaryMuscles.split(',')
+            .mapNotNull { n -> Muscle.entries.firstOrNull { it.name == n.trim() } },
+        equipment = Equipment.entries.firstOrNull { it.name == equipment } ?: Equipment.MACHINE,
+    )
+}
 
 /**
  * What you say you trained on a day, independent of logged sets.
@@ -125,6 +154,18 @@ interface OgDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveMeal(log: MealLog)
 
+    @Query("SELECT * FROM custom_exercise ORDER BY name ASC")
+    fun customExercises(): Flow<List<CustomExercise>>
+
+    @Query("SELECT * FROM custom_exercise")
+    suspend fun customExercisesOnce(): List<CustomExercise>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveCustomExercise(exercise: CustomExercise)
+
+    @Query("DELETE FROM custom_exercise WHERE id = :id")
+    suspend fun deleteCustomExercise(id: String)
+
     @Query("SELECT * FROM day_log WHERE day >= :fromDay ORDER BY day ASC")
     fun dayLogsSince(fromDay: Long): Flow<List<DayLog>>
 
@@ -151,14 +192,32 @@ interface OgDao {
 
     @Query("SELECT DISTINCT day FROM set_log ORDER BY day DESC")
     fun trainingDays(): Flow<List<Long>>
+
+    // ---- whole-state read/write, used by backup and restore ----
+
+    @Query("SELECT * FROM profile WHERE id = 1") suspend fun profileOnce(): Profile?
+    @Query("SELECT * FROM set_log") suspend fun allSets(): List<SetLog>
+    @Query("SELECT * FROM meal_log") suspend fun allMeals(): List<MealLog>
+    @Query("SELECT * FROM extra_intake") suspend fun allExtras(): List<ExtraIntake>
+    @Query("SELECT * FROM measurement") suspend fun allMeasurements(): List<Measurement>
+    @Query("SELECT * FROM day_log") suspend fun allDayLogs(): List<DayLog>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putSets(rows: List<SetLog>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putMeals(rows: List<MealLog>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putExtras(rows: List<ExtraIntake>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putMeasurements(rows: List<Measurement>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putDayLogs(rows: List<DayLog>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putCustomExercises(rows: List<CustomExercise>)
+
+    @Query("SELECT COUNT(*) FROM set_log WHERE day = :day") suspend fun setCountOn(day: Long): Int
 }
 
 @Database(
     entities = [
         Profile::class, SetLog::class, MealLog::class, Measurement::class,
-        ExtraIntake::class, DayLog::class,
+        ExtraIntake::class, DayLog::class, CustomExercise::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class OgDatabase : RoomDatabase() {
@@ -198,6 +257,25 @@ abstract class OgDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds user-added lifts, the Neon connection string and the reminder toggle. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `custom_exercise` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `name` TEXT NOT NULL,
+                        `muscleGroup` TEXT NOT NULL,
+                        `primaryMuscles` TEXT NOT NULL,
+                        `equipment` TEXT NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                connection.execSQL("ALTER TABLE `profile` ADD COLUMN `neonUrl` TEXT NOT NULL DEFAULT ''")
+                connection.execSQL("ALTER TABLE `profile` ADD COLUMN `reminderOn` INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         @Volatile private var instance: OgDatabase? = null
 
         fun get(context: Context): OgDatabase = instance ?: synchronized(this) {
@@ -205,7 +283,8 @@ abstract class OgDatabase : RoomDatabase() {
                 context.applicationContext,
                 OgDatabase::class.java,
                 "og.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .build().also { instance = it }
         }
     }
 }

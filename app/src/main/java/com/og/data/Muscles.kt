@@ -7,6 +7,13 @@ enum class MuscleGroup(val label: String) {
     ARMS("Arms"),
     LEGS("Legs"),
     CORE("Core"),
+    ;
+
+    /** Every muscle in this group, for picking targets on a user-added lift. */
+    val muscles: List<Muscle> get() = Muscle.entries.filter { it.group == this }
+
+    /** Fallback so a custom lift always targets something and never counts for nothing. */
+    val defaultMuscle: Muscle get() = muscles.first()
 }
 
 enum class Muscle(val label: String, val group: MuscleGroup) {

@@ -7,10 +7,17 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import com.og.OgApp
+import android.app.Application
+import android.provider.Settings
+import com.og.data.CustomExercise
 import com.og.data.DayLog
+import com.og.data.ExerciseLibrary
 import com.og.data.ExtraIntake
+import com.og.data.NeonSync
+import com.og.data.Seed
 import com.og.data.MealLog
 import com.og.data.Measurement
+import com.og.data.Equipment
 import com.og.data.Muscle
 import com.og.data.MuscleGroup
 import com.og.data.OgDao
@@ -22,6 +29,7 @@ import com.og.domain.Analytics
 import com.og.domain.Score
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -37,6 +45,7 @@ data class UiState(
     val selectedDay: Long = LocalDate.now().toEpochDay(),
     val sets: List<SetLog> = emptyList(),
     val dayLogs: List<DayLog> = emptyList(),
+    val customExercises: List<CustomExercise> = emptyList(),
     val meals: List<MealLog> = emptyList(),
     val extras: List<ExtraIntake> = emptyList(),
     val measurements: List<Measurement> = emptyList(),
@@ -47,6 +56,9 @@ data class UiState(
     val streak: Int = 0,
     val groupSessions: Map<MuscleGroup, Int> = emptyMap(),
     val suggestTopUp: Boolean = false,
+    /** Protein and calories for the day the Fuel screen is showing. */
+    val proteinSelected: Double = 0.0,
+    val kcalSelected: Double = 0.0,
 ) {
     val onboarded: Boolean get() = profile?.onboarded == true
 
@@ -81,6 +93,10 @@ class OgViewModel(private val dao: OgDao) : ViewModel() {
 
     private val selectedDay = MutableStateFlow(today)
 
+    init {
+        viewModelScope.launch { Seed.backfill(dao) }
+    }
+
     private val core = combine(
         dao.profile(),
         dao.setsSince(today - 400),
@@ -93,7 +109,10 @@ class OgViewModel(private val dao: OgDao) : ViewModel() {
         core,
         dao.dayLogsSince(today - 400),
         selectedDay,
-    ) { c, dayLogs, chosen ->
+        dao.customExercises(),
+    ) { c, dayLogs, chosen, customs ->
+        // Mirror user-added lifts into the static library so every lookup resolves them.
+        ExerciseLibrary.setCustom(customs.map { it.toExercise() })
         val p = c.profile ?: return@combine UiState(loading = false, today = today, selectedDay = chosen)
         val recency = Analytics.muscleRecency(c.sets, today)
         // Hand-tagged days count as trained, so the streak does not break on a session
@@ -107,6 +126,7 @@ class OgViewModel(private val dao: OgDao) : ViewModel() {
             selectedDay = chosen,
             sets = c.sets,
             dayLogs = dayLogs,
+            customExercises = customs,
             meals = c.meals,
             extras = c.extras,
             measurements = c.measurements,
@@ -117,6 +137,8 @@ class OgViewModel(private val dao: OgDao) : ViewModel() {
             streak = Analytics.streak(trainedDays, today, p.startedOnDay),
             groupSessions = Analytics.groupSessions(c.sets, today - 7, dayLogs),
             suggestTopUp = Analytics.shouldSuggestTopUp(today, c.meals, p, c.extras),
+            proteinSelected = Analytics.proteinOn(chosen, c.meals, c.extras),
+            kcalSelected = Analytics.kcalOn(chosen, c.meals, c.extras),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())
 
@@ -160,13 +182,20 @@ class OgViewModel(private val dao: OgDao) : ViewModel() {
     fun deleteSet(id: Long) = viewModelScope.launch { dao.deleteSet(id) }
 
     fun setMeal(mealId: String, servings: Double, completed: Boolean) = viewModelScope.launch {
-        dao.saveMeal(MealLog(day = today, mealId = mealId, servings = servings, completed = completed))
+        dao.saveMeal(
+            MealLog(
+                day = selectedDay.value,
+                mealId = mealId,
+                servings = servings,
+                completed = completed,
+            ),
+        )
     }
 
     fun addExtra(label: String, proteinG: Double, kcal: Double) = viewModelScope.launch {
         dao.addExtra(
             ExtraIntake(
-                day = today,
+                day = selectedDay.value,
                 label = label.ifBlank { "Extra" },
                 proteinG = proteinG,
                 kcal = kcal,
@@ -176,6 +205,66 @@ class OgViewModel(private val dao: OgDao) : ViewModel() {
     }
 
     fun deleteExtra(id: Long) = viewModelScope.launch { dao.deleteExtra(id) }
+
+    // ---------------------------------------------------------------- custom lifts
+
+    fun addCustomExercise(
+        name: String,
+        group: MuscleGroup,
+        muscles: List<Muscle>,
+        equipment: Equipment,
+    ) = viewModelScope.launch {
+        val clean = name.trim()
+        if (clean.isEmpty()) return@launch
+        // Slug plus a timestamp so two lifts with the same name cannot collide.
+        val slug = clean.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
+        dao.saveCustomExercise(
+            CustomExercise(
+                id = "custom_${slug}_${System.currentTimeMillis() % 100000}",
+                name = clean,
+                muscleGroup = group.name,
+                primaryMuscles = muscles.ifEmpty { listOf(group.defaultMuscle) }.joinToString(",") { it.name },
+                equipment = equipment.name,
+            ),
+        )
+    }
+
+    fun deleteCustomExercise(id: String) = viewModelScope.launch { dao.deleteCustomExercise(id) }
+
+    // ---------------------------------------------------------------- backup
+
+    private val _sync = MutableStateFlow<String?>(null)
+
+    /** Last sync outcome, shown in Settings. Null while idle. */
+    val syncStatus: StateFlow<String?> = _sync.asStateFlow()
+
+    fun saveNeonUrl(url: String) = viewModelScope.launch {
+        state.value.profile?.let { dao.saveProfile(it.copy(neonUrl = url.trim())) }
+    }
+
+    fun setReminder(on: Boolean) = viewModelScope.launch {
+        state.value.profile?.let { dao.saveProfile(it.copy(reminderOn = on)) }
+    }
+
+    fun backupNow(deviceId: String) = viewModelScope.launch {
+        _sync.value = "Backing up…"
+        _sync.value = try {
+            val bytes = NeonSync.push(dao, state.value.profile?.neonUrl.orEmpty(), deviceId)
+            "Backed up ${bytes / 1024 + 1} KB"
+        } catch (e: Exception) {
+            e.message ?: "Backup failed"
+        }
+    }
+
+    fun restoreNow(deviceId: String) = viewModelScope.launch {
+        _sync.value = "Restoring…"
+        _sync.value = try {
+            val rows = NeonSync.pull(dao, state.value.profile?.neonUrl.orEmpty(), deviceId)
+            "Restored $rows rows"
+        } catch (e: Exception) {
+            e.message ?: "Restore failed"
+        }
+    }
 
     fun saveMeasurement(m: Measurement) = viewModelScope.launch { dao.saveMeasurement(m) }
 

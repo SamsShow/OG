@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Accessibility
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FitnessCenter
@@ -65,6 +66,7 @@ import com.og.ui.EmptyHint
 import com.og.ui.IconBadge
 import com.og.ui.OgField
 import com.og.ui.PrimaryButton
+import com.og.ui.QuietButton
 import com.og.ui.OgCard
 import com.og.ui.SectionTitle
 import com.og.ui.StatTile
@@ -109,14 +111,119 @@ fun TrainScreen(state: UiState, vm: com.og.ui.OgViewModel) {
         if (ex != null) {
             ExerciseDetail(ex, state, vm, onBack = { selected = null })
         } else {
-            ExerciseList(state, onPick = { selected = it }, onResetDay = vm::resetToToday)
+            ExerciseList(
+                state,
+                onPick = { selected = it },
+                onResetDay = vm::resetToToday,
+                onAdd = vm::addCustomExercise,
+            )
         }
+    }
+}
+
+/**
+ * Adds a lift the built-in library is missing. The muscle choices are filtered to the
+ * chosen group, so a custom lift always resolves to real muscles and shows up on the body
+ * diagram and in coverage rather than counting for nothing.
+ */
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun AddExerciseCard(
+    preset: MuscleGroup?,
+    onAdd: (String, MuscleGroup, List<Muscle>, Equipment) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var group by remember(preset) { mutableStateOf(preset ?: MuscleGroup.CHEST) }
+    var muscles by remember { mutableStateOf(setOf<Muscle>()) }
+    var equipment by remember { mutableStateOf(Equipment.MACHINE) }
+
+    OgCard(padding = 16.dp) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconBadge(Icons.Filled.Add, container = Og.Inset, tint = Og.Ink, size = 44.dp)
+            Spacer(Modifier.width(13.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Add an exercise", style = MaterialTheme.typography.titleMedium, color = Og.Ink)
+                Text(
+                    "Missing a lift? Add it with the muscles it hits.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Og.InkMuted,
+                )
+            }
+        }
+
+        if (open) {
+            Spacer(Modifier.height(16.dp))
+            OgField("Name", name, { name = it }, numeric = false, placeholder = "Pec Deck")
+
+            Spacer(Modifier.height(16.dp))
+            Text("MUSCLE GROUP", style = MaterialTheme.typography.labelSmall, color = Og.InkMuted)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MuscleGroup.entries.forEach { g ->
+                    Chip(g.label, group == g) {
+                        group = g
+                        muscles = emptySet() // stale picks from the old group would be wrong
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Text("TARGETS", style = MaterialTheme.typography.labelSmall, color = Og.InkMuted)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                group.muscles.forEach { m ->
+                    Chip(m.label, m in muscles) {
+                        muscles = if (m in muscles) muscles - m else muscles + m
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Text("EQUIPMENT", style = MaterialTheme.typography.labelSmall, color = Og.InkMuted)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Equipment.entries.forEach { e ->
+                    Chip(e.label, equipment == e) { equipment = e }
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
+            PrimaryButton(
+                "Add to library",
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onAdd(name, group, muscles.toList(), equipment)
+                        name = ""
+                        muscles = emptySet()
+                        open = false
+                    }
+                },
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+        QuietButton(if (open) "Cancel" else "New exercise", onClick = { open = !open })
     }
 }
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-private fun ExerciseList(state: UiState, onPick: (Exercise) -> Unit, onResetDay: () -> Unit) {
+private fun ExerciseList(
+    state: UiState,
+    onPick: (Exercise) -> Unit,
+    onResetDay: () -> Unit,
+    onAdd: (String, MuscleGroup, List<Muscle>, Equipment) -> Unit,
+) {
     var group by remember { mutableStateOf<MuscleGroup?>(null) }
     val session = state.todaySession
 
@@ -195,6 +302,8 @@ private fun ExerciseList(state: UiState, onPick: (Exercise) -> Unit, onResetDay:
         if (list.isEmpty()) {
             item { EmptyHint("Nothing scheduled today. Pick a muscle group to train anyway.") }
         }
+
+        item { AddExerciseCard(group, onAdd) }
 
         items(list, key = { it.id }) { exercise ->
             val setsToday = state.sets.filter { it.day == state.today && it.exerciseId == exercise.id }
