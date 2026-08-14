@@ -52,6 +52,21 @@ data class MealLog(
     val completed: Boolean,
 )
 
+/**
+ * What you say you trained on a day, independent of logged sets.
+ *
+ * Sets are the precise record, but they are not always the whole record — you can finish a
+ * back session and never type in the numbers. Tagging the day keeps the calendar and the
+ * coverage stats honest without forcing you to log every set.
+ */
+@Entity(tableName = "day_log")
+data class DayLog(
+    @PrimaryKey val day: Long,
+    /** Comma-separated [MuscleGroup] names. Empty string means no manual tag. */
+    val groups: String,
+    val note: String,
+)
+
 /** Anything eaten outside the plan — snacks, meals out, a second helping. */
 @Entity(tableName = "extra_intake")
 data class ExtraIntake(
@@ -110,6 +125,15 @@ interface OgDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveMeal(log: MealLog)
 
+    @Query("SELECT * FROM day_log WHERE day >= :fromDay ORDER BY day ASC")
+    fun dayLogsSince(fromDay: Long): Flow<List<DayLog>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveDayLog(log: DayLog)
+
+    @Query("DELETE FROM day_log WHERE day = :day")
+    suspend fun deleteDayLog(day: Long)
+
     @Query("SELECT * FROM extra_intake WHERE day >= :fromDay ORDER BY createdAt ASC")
     fun extrasSince(fromDay: Long): Flow<List<ExtraIntake>>
 
@@ -130,8 +154,11 @@ interface OgDao {
 }
 
 @Database(
-    entities = [Profile::class, SetLog::class, MealLog::class, Measurement::class, ExtraIntake::class],
-    version = 2,
+    entities = [
+        Profile::class, SetLog::class, MealLog::class, Measurement::class,
+        ExtraIntake::class, DayLog::class,
+    ],
+    version = 3,
     exportSchema = true,
 )
 abstract class OgDatabase : RoomDatabase() {
@@ -156,6 +183,21 @@ abstract class OgDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds hand-tagged training days for the calendar. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `day_log` (
+                        `day` INTEGER NOT NULL PRIMARY KEY,
+                        `groups` TEXT NOT NULL,
+                        `note` TEXT NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         @Volatile private var instance: OgDatabase? = null
 
         fun get(context: Context): OgDatabase = instance ?: synchronized(this) {
@@ -163,7 +205,7 @@ abstract class OgDatabase : RoomDatabase() {
                 context.applicationContext,
                 OgDatabase::class.java,
                 "og.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }

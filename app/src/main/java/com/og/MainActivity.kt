@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.PieChartOutline
 import androidx.compose.material.icons.outlined.AccessibilityNew
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.og.ui.OgViewModel
 import com.og.ui.screens.BodyScreen
+import com.og.ui.screens.CalendarScreen
 import com.og.ui.screens.DashboardScreen
 import com.og.ui.screens.FuelScreen
 import com.og.ui.screens.OnboardingScreen
@@ -83,6 +85,7 @@ import kotlin.math.roundToInt
 
 private enum class Tab(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Outlined.GridView),
+    PLAN("Plan", Icons.Outlined.CalendarMonth),
     TRAIN("Train", Icons.Filled.Bolt),
     FUEL("Fuel", Icons.Filled.PieChartOutline),
     BODY("Body", Icons.Outlined.AccessibilityNew),
@@ -158,6 +161,7 @@ private fun OgRoot() {
                             onOpenFuel = { tab = Tab.FUEL },
                             onOpenStats = { tab = Tab.STATS },
                         )
+                        Tab.PLAN -> CalendarScreen(state, vm, onOpenTrain = { tab = Tab.TRAIN })
                         Tab.TRAIN -> TrainScreen(state, vm)
                         Tab.FUEL -> FuelScreen(state, vm)
                         Tab.BODY -> BodyScreen(state, vm)

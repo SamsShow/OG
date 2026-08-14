@@ -1,6 +1,8 @@
 package com.og
 
+import com.og.data.DayLog
 import com.og.data.ExtraIntake
+import com.og.data.MuscleGroup
 import com.og.data.MealLog
 import com.og.data.MealPlan
 import com.og.data.Measurement
@@ -162,6 +164,55 @@ class AnalyticsTest {
             .map { MealLog(day = 5, mealId = it.id, servings = 1.0, completed = true) } +
             MealLog(day = 5, mealId = MealPlan.night.id, servings = 0.0, completed = true)
         assertTrue(Analytics.shouldSuggestTopUp(5, short, profile))
+    }
+
+    // ---------------------------------------------------------------- calendar
+
+    private fun set(day: Long, exerciseId: String) =
+        SetLog(exerciseId = exerciseId, day = day, weightKg = 40.0, reps = 8, createdAt = 0)
+
+    @Test
+    fun `a day's groups merge logged sets with hand tags`() {
+        // lat_pulldown is a Back lift; the user also says they trained core that day.
+        val sets = listOf(set(10, "lat_pulldown"))
+        val tags = listOf(DayLog(day = 10, groups = "CORE", note = ""))
+
+        val groups = Analytics.groupsOn(10, sets, tags)
+        assertTrue("expected back from the logged set", MuscleGroup.BACK in groups)
+        assertTrue("expected core from the hand tag", MuscleGroup.CORE in groups)
+    }
+
+    @Test
+    fun `a hand-tagged day with no sets still counts as trained`() {
+        val tags = listOf(DayLog(day = 10, groups = "LEGS,CORE", note = ""))
+        val calendar = Analytics.trainingCalendar(emptyList(), tags)
+
+        assertEquals(setOf(MuscleGroup.LEGS, MuscleGroup.CORE), calendar[10])
+    }
+
+    @Test
+    fun `an emptied tag drops the day off the calendar`() {
+        val tags = listOf(DayLog(day = 10, groups = "", note = ""))
+        assertTrue(Analytics.trainingCalendar(emptyList(), tags).isEmpty())
+    }
+
+    @Test
+    fun `hand-tagged days count toward muscle coverage`() {
+        val tags = listOf(
+            DayLog(day = 10, groups = "LEGS", note = ""),
+            DayLog(day = 11, groups = "LEGS", note = ""),
+        )
+        val coverage = Analytics.groupSessions(emptyList(), fromDay = 0, dayLogs = tags)
+        assertEquals(2, coverage[MuscleGroup.LEGS])
+        assertEquals(0, coverage[MuscleGroup.BACK])
+    }
+
+    @Test
+    fun `the same day tagged and logged is not counted twice`() {
+        val sets = listOf(set(10, "lat_pulldown"), set(10, "barbell_row"))
+        val tags = listOf(DayLog(day = 10, groups = "BACK", note = ""))
+        val coverage = Analytics.groupSessions(sets, fromDay = 0, dayLogs = tags)
+        assertEquals(1, coverage[MuscleGroup.BACK])
     }
 
     // ---------------------------------------------------------------- streak

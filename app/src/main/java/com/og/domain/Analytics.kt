@@ -1,5 +1,6 @@
 package com.og.domain
 
+import com.og.data.DayLog
 import com.og.data.ExerciseLibrary
 import com.og.data.ExtraIntake
 import com.og.data.MealKind
@@ -148,13 +149,51 @@ object Analytics {
         else -> 0f
     }
 
-    fun groupSessions(sets: List<SetLog>, fromDay: Long): Map<MuscleGroup, Int> {
+    // ------------------------------------------------------------ calendar
+
+    fun tagsOf(log: DayLog?): Set<MuscleGroup> =
+        log?.groups.orEmpty()
+            .split(',')
+            .mapNotNull { name -> MuscleGroup.entries.firstOrNull { it.name == name.trim() } }
+            .toSet()
+
+    /**
+     * What a day counts as trained: groups inferred from logged sets, plus anything tagged
+     * by hand. A union, because a session you tagged but did not log still happened.
+     */
+    fun groupsOn(day: Long, sets: List<SetLog>, dayLogs: List<DayLog>): Set<MuscleGroup> {
+        val fromSets = sets.filter { it.day == day }
+            .flatMap { musclesOf(it) }
+            .map { it.group }
+            .toSet()
+        return fromSets + tagsOf(dayLogs.firstOrNull { it.day == day })
+    }
+
+    /** Every day in the range that has training on it, keyed to the groups worked. */
+    fun trainingCalendar(
+        sets: List<SetLog>,
+        dayLogs: List<DayLog>,
+    ): Map<Long, Set<MuscleGroup>> {
+        val days = sets.map { it.day }.toSet() + dayLogs.filter { it.groups.isNotBlank() }.map { it.day }
+        return days.associateWith { groupsOn(it, sets, dayLogs) }.filterValues { it.isNotEmpty() }
+    }
+
+    fun groupSessions(
+        sets: List<SetLog>,
+        fromDay: Long,
+        dayLogs: List<DayLog> = emptyList(),
+    ): Map<MuscleGroup, Int> {
         val byGroup = mutableMapOf<MuscleGroup, MutableSet<Long>>()
         for (set in sets) {
             if (set.day < fromDay) continue
             for (m in musclesOf(set)) {
                 byGroup.getOrPut(m.group) { mutableSetOf() }.add(set.day)
             }
+        }
+        // Hand-tagged days count toward coverage too, or tagging would silently do nothing.
+        for (log in dayLogs) {
+            if (log.day < fromDay) continue
+            for (g in tagsOf(log)) byGroup.getOrPut(g) { mutableSetOf() }.add(log.day)
         }
         return MuscleGroup.entries.associateWith { byGroup[it]?.size ?: 0 }
     }

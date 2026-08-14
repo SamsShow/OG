@@ -109,14 +109,14 @@ fun TrainScreen(state: UiState, vm: com.og.ui.OgViewModel) {
         if (ex != null) {
             ExerciseDetail(ex, state, vm, onBack = { selected = null })
         } else {
-            ExerciseList(state, onPick = { selected = it })
+            ExerciseList(state, onPick = { selected = it }, onResetDay = vm::resetToToday)
         }
     }
 }
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-private fun ExerciseList(state: UiState, onPick: (Exercise) -> Unit) {
+private fun ExerciseList(state: UiState, onPick: (Exercise) -> Unit, onResetDay: () -> Unit) {
     var group by remember { mutableStateOf<MuscleGroup?>(null) }
     val session = state.todaySession
 
@@ -144,6 +144,36 @@ private fun ExerciseList(state: UiState, onPick: (Exercise) -> Unit) {
             )
         }
 
+        // Logging into a past day is easy to forget you asked for, so it is never silent.
+        if (!state.loggingForToday) {
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Og.Lime)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Logging to ${
+                            LocalDate.ofEpochDay(state.selectedDay)
+                                .format(DateTimeFormatter.ofPattern("EEE d MMM"))
+                        }",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Og.Forest,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "Back to today",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Og.Forest,
+                        modifier = Modifier.clickable { onResetDay() },
+                    )
+                }
+            }
+        }
+
         item {
             // Wraps rather than scrolls horizontally: with seven filters, Legs and Core
             // fell off the right edge and the exercises looked like they did not exist.
@@ -151,7 +181,8 @@ private fun ExerciseList(state: UiState, onPick: (Exercise) -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Chip("Today", group == null) { group = null }
+                // Not "Today" — it follows the selected day, which may be in the past.
+                Chip("Suggested", group == null) { group = null }
                 MuscleGroup.entries.forEach { g ->
                     Chip(
                         "${g.label}  ${ExerciseLibrary.byGroup(g).size}",
